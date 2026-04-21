@@ -160,10 +160,34 @@ class PokemonByTypeDataset(Dataset):
         return img, label
 
 
+def _to_rgb_on_white(img: Image.Image) -> Image.Image:
+    """Flatten palette/RGBA images onto a white background, then return RGB.
+
+    Pokemon sprites are palette-mode PNGs with a transparent background
+    (tRNS chunk).  A direct ``.convert("RGB")`` on these triggers PIL's
+    ``Palette images with Transparency expressed in bytes`` warning and
+    silently fills the transparent pixels with black - which leaves a dark
+    halo around every sprite.  Converting via RGBA and compositing on white
+    avoids both the warning and the halo, and matches how these sprites are
+    normally displayed.
+    """
+    if img.mode in ("P", "LA") and "transparency" in img.info:
+        img = img.convert("RGBA")
+    if img.mode == "RGBA":
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, mask=img.split()[-1])
+        return bg
+    if img.mode != "RGB":
+        return img.convert("RGB")
+    return img
+
+
 def build_transforms(image_size: int, channels: int, train: bool) -> transforms.Compose:
-    """Augmentation: flip / rotation / zoom / rescale for training."""
-    mode = "RGBA" if channels == 4 else "RGB"
-    to_mode = transforms.Lambda(lambda im: im.convert(mode))
+    """Paper-style augmentation: flip / rotation / zoom / rescale for training."""
+    if channels == 4:
+        to_mode = transforms.Lambda(lambda im: im.convert("RGBA"))
+    else:
+        to_mode = transforms.Lambda(_to_rgb_on_white)
     if train:
         return transforms.Compose([
             to_mode,
